@@ -25,13 +25,16 @@ import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathIsNotEmptyDirectoryException;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -289,13 +292,13 @@ public class TestFileDeleteWorkflow extends AbstractHdfsWorkflowTest {
      * <p>Validation criteria:
      * <ul>
      *   <li>Directory and file exist after creation</li>
-     *   <li>Non-recursive delete() on non-empty directory returns false or throws IOException</li>
+     *   <li>Non-recursive delete() on non-empty directory throws PathIsNotEmptyDirectoryException</li>
      *   <li>Directory and contents remain intact after failed deletion attempt</li>
      * </ul>
      * 
-     * <p>Note: HDFS semantics return false when attempting non-recursive deletion
-     * of a non-empty directory, rather than throwing an exception. This test
-     * validates both the return value and the preservation of directory contents.
+     * <p>Note: HDFS throws {@link PathIsNotEmptyDirectoryException} when attempting 
+     * non-recursive deletion of a non-empty directory. This test validates both the
+     * exception being thrown and the preservation of directory contents.
      * 
      * @throws IOException if file operations fail unexpectedly
      */
@@ -330,13 +333,17 @@ public class TestFileDeleteWorkflow extends AbstractHdfsWorkflowTest {
         assertTrue(contents.length > 0, 
             "Directory should have contents");
         
-        // ACT: Attempt non-recursive deletion of non-empty directory
-        // HDFS returns false for non-recursive delete of non-empty directory
-        boolean deleteResult = fs.delete(dirPath, false);
+        // ACT & ASSERT: Attempt non-recursive deletion should throw exception
+        // HDFS throws PathIsNotEmptyDirectoryException for non-recursive delete of non-empty directory
+        IOException thrownException = assertThrows(IOException.class, () -> {
+            fs.delete(dirPath, false);
+        }, "delete(path, false) should throw IOException for non-empty directory");
         
-        // ASSERT: Deletion should fail and contents should remain
-        assertFalse(deleteResult, 
-            "delete(path, false) should return false for non-empty directory");
+        // Verify the exception is specifically PathIsNotEmptyDirectoryException
+        assertInstanceOf(PathIsNotEmptyDirectoryException.class, thrownException,
+            "Exception should be PathIsNotEmptyDirectoryException");
+        
+        // ASSERT: Directory and contents should remain intact after failed deletion
         assertTrue(fs.exists(dirPath), 
             "Directory should still exist after failed deletion attempt");
         assertTrue(fs.exists(filePath), 
