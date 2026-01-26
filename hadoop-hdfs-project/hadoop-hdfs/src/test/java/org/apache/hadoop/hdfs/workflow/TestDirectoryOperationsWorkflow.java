@@ -439,7 +439,7 @@ public class TestDirectoryOperationsWorkflow extends AbstractHdfsWorkflowTest {
      * <ul>
      *   <li>Rename non-existent directory returns false</li>
      *   <li>Rename to non-existent parent returns false</li>
-     *   <li>Self-rename succeeds without error</li>
+     *   <li>Self-rename returns false but path remains unchanged</li>
      * </ul>
      * 
      * @throws IOException if any file system operation fails
@@ -469,13 +469,14 @@ public class TestDirectoryOperationsWorkflow extends AbstractHdfsWorkflowTest {
         assertTrue(fs.exists(existingSource), 
                 "Source should still exist after failed rename");
 
-        // Test 3: Self-rename (rename to same path) should succeed
-        // According to HDFS behavior, renaming a path to itself returns true
+        // Test 3: Self-rename (rename to same path) behavior
+        // According to HDFS behavior, renaming a path to itself returns false
+        // but does not modify the source - it remains unchanged
         boolean selfRename = fs.rename(existingSource, existingSource);
-        assertTrue(selfRename, 
-                "Self-rename (source equals destination) should return true");
+        assertFalse(selfRename, 
+                "Self-rename (source equals destination) should return false in HDFS");
         assertTrue(fs.exists(existingSource), 
-                "Directory should still exist after self-rename");
+                "Directory should still exist after self-rename attempt");
 
         // Test 4: Verify mkdirs creates all parent directories
         Path deepPath = new Path(testDir, "a/b/c/d/e/f/g");
@@ -494,6 +495,7 @@ public class TestDirectoryOperationsWorkflow extends AbstractHdfsWorkflowTest {
         }
 
         // Test 5: Delete non-empty directory with recursive=false should fail
+        // In HDFS, non-recursive delete of a non-empty directory throws PathIsNotEmptyDirectoryException
         Path dirWithContent = new Path(testDir, "dir_with_content");
         assertTrue(fs.mkdirs(dirWithContent), "Directory with content creation should succeed");
         
@@ -502,10 +504,15 @@ public class TestDirectoryOperationsWorkflow extends AbstractHdfsWorkflowTest {
             out.write("content".getBytes(StandardCharsets.UTF_8));
         }
 
-        // Non-recursive delete of non-empty directory should fail
-        boolean nonRecursiveDelete = fs.delete(dirWithContent, false);
-        assertFalse(nonRecursiveDelete, 
-                "Non-recursive delete of non-empty directory should return false");
+        // Non-recursive delete of non-empty directory should throw an exception
+        IOException deleteException = org.junit.jupiter.api.Assertions.assertThrows(
+                IOException.class,
+                () -> fs.delete(dirWithContent, false),
+                "Non-recursive delete of non-empty directory should throw IOException");
+        assertTrue(deleteException.getMessage().contains("not empty") || 
+                   deleteException.getClass().getSimpleName().contains("NotEmpty"),
+                "Exception should indicate directory is not empty");
+        
         assertTrue(fs.exists(dirWithContent), 
                 "Directory should still exist after failed non-recursive delete");
         assertTrue(fs.exists(fileInDir), 
