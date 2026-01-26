@@ -266,7 +266,7 @@ public class TestReducePhaseWorkflow extends AbstractMapReduceWorkflowTest {
                 () -> {
                     try {
                         return job.isComplete();
-                    } catch (IOException | InterruptedException e) {
+                    } catch (IOException e) {
                         LOG.warn("Exception checking job completion", e);
                         return false;
                     }
@@ -386,7 +386,7 @@ public class TestReducePhaseWorkflow extends AbstractMapReduceWorkflowTest {
                 () -> {
                     try {
                         return job.isComplete();
-                    } catch (IOException | InterruptedException e) {
+                    } catch (IOException e) {
                         LOG.warn("Exception checking job completion", e);
                         return false;
                     }
@@ -526,7 +526,7 @@ public class TestReducePhaseWorkflow extends AbstractMapReduceWorkflowTest {
                 () -> {
                     try {
                         return job.isComplete();
-                    } catch (IOException | InterruptedException e) {
+                    } catch (IOException e) {
                         LOG.warn("Exception checking job completion", e);
                         return false;
                     }
@@ -658,7 +658,7 @@ public class TestReducePhaseWorkflow extends AbstractMapReduceWorkflowTest {
                 () -> {
                     try {
                         return job.isComplete();
-                    } catch (IOException | InterruptedException e) {
+                    } catch (IOException e) {
                         LOG.warn("Exception checking job completion", e);
                         return false;
                     }
