@@ -294,27 +294,30 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
     }
 
     /**
-     * Tests final property cannot be overridden workflow.
+     * Tests final property cannot be overridden by subsequent resources workflow.
      * 
-     * <p>Workflow path: Final property cannot be overridden</p>
+     * <p>Workflow path: Final property cannot be overridden by addResource</p>
      * <p>Production methods invoked:</p>
      * <ul>
      *   <li>{@link Configuration#addResource(Path)} - Load XML configuration file</li>
-     *   <li>{@link Configuration#set(String, String)} - Attempt to override final property</li>
+     *   <li>{@link Configuration#set(String, String)} - Programmatically set property</li>
      *   <li>{@link Configuration#get(String)} - Retrieve property value</li>
      * </ul>
      * <p>Input conditions:</p>
      * <ul>
      *   <li>XML file with property marked as final</li>
      *   <li>Second XML resource with different value for final property</li>
-     *   <li>Programmatic set attempt on final property</li>
      * </ul>
      * <p>Validation criteria:</p>
      * <ul>
-     *   <li>Original final value is preserved after override attempts</li>
+     *   <li>Original final value is preserved when second resource tries to override</li>
      *   <li>Second resource with different value is ignored for final properties</li>
-     *   <li>Programmatic set does not override final property</li>
+     *   <li>Note: Programmatic set() CAN override final properties - this is expected behavior</li>
      * </ul>
+     * 
+     * <p><b>Important:</b> In Hadoop's Configuration, the 'final' flag only protects
+     * against override via addResource(). Programmatic set() calls can still modify
+     * the value. This is the intended production behavior.</p>
      *
      * @throws IOException if configuration file creation fails
      */
@@ -324,7 +327,7 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
         // ARRANGE: Create primary XML configuration file with final property
         createConfigFile();
         startConfig();
-        // Mark property as final - this should not be overridable
+        // Mark property as final - this should not be overridable by addResource
         appendProperty("final.property", "original.final.value", true);
         // Non-final property for comparison
         appendProperty("normal.property", "normal.value", false);
@@ -341,18 +344,6 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
         assertEquals("original.final.value", conf.get("final.property"),
             "Final property should be loaded with original value");
         
-        // ACT: Attempt programmatic override of final property
-        conf.set("final.property", "attempted.override");
-        
-        // ASSERT: Final property should retain original value
-        assertEquals("original.final.value", conf.get("final.property"),
-            "Final property should not be overridden by programmatic set");
-        
-        // ACT: Normal property should allow override
-        conf.set("normal.property", "overridden.value");
-        assertEquals("overridden.value", conf.get("normal.property"),
-            "Non-final property should allow override");
-        
         // ARRANGE: Create secondary config file with different value for final property
         File secondConfigFile = createSecondaryConfigFile("override");
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(secondConfigFile))) {
@@ -361,6 +352,11 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
             writer.write("<property>");
             writer.write("<name>final.property</name>");
             writer.write("<value>second.resource.value</value>");
+            writer.write("</property>\n");
+            // Also try to override normal property
+            writer.write("<property>");
+            writer.write("<name>normal.property</name>");
+            writer.write("<value>second.normal.value</value>");
             writer.write("</property>\n");
             writer.write("</configuration>\n");
             writer.flush();
@@ -373,10 +369,20 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
         // Force reload to pick up new resource
         conf.get("final.property");
         
-        // ASSERT: Final property should still retain original value
-        // (second resource value should be ignored)
+        // ASSERT: Final property should retain original value
+        // (second resource value should be ignored because it was marked final in first resource)
         assertEquals("original.final.value", conf.get("final.property"),
             "Final property should not be overridden by second resource");
+        
+        // ASSERT: Normal (non-final) property CAN be overridden by second resource
+        assertEquals("second.normal.value", conf.get("normal.property"),
+            "Non-final property should be overridden by second resource");
+        
+        // Demonstrate that programmatic set() CAN override even final properties
+        // This is the expected production behavior - final only protects against addResource()
+        conf.set("final.property", "programmatic.override");
+        assertEquals("programmatic.override", conf.get("final.property"),
+            "Programmatic set() can override final properties (expected behavior)");
         
         // Cleanup secondary file
         secondConfigFile.delete();
@@ -474,7 +480,15 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
     }
     
     /**
-     * Helper method to create a secondary configuration with empty value for testing.
+     * Helper method to demonstrate empty value handling in Configuration.
+     * 
+     * <p><b>Important:</b> In Hadoop's Configuration, when a property has an empty
+     * value in XML (e.g., {@code <value></value>}), by default the property is NOT
+     * loaded at all (allowNullValueProperties is false by default). This means
+     * conf.get() will return null, not an empty string.</p>
+     * 
+     * <p>To load empty values, you must call {@code conf.setAllowNullValueProperties(true)}
+     * before loading the resource.</p>
      * 
      * @throws IOException if file creation fails
      */
@@ -487,6 +501,11 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
             writer.write("<name>empty.property</name>");
             writer.write("<value></value>");
             writer.write("</property>\n");
+            // Also add a property with actual whitespace value
+            writer.write("<property>");
+            writer.write("<name>whitespace.property</name>");
+            writer.write("<value>   </value>");
+            writer.write("</property>\n");
             writer.write("</configuration>\n");
             writer.flush();
         }
@@ -494,15 +513,19 @@ public class TestConfigurationLoadingWorkflow extends AbstractCommonWorkflowTest
         Path secondConfigPath = getConfigPath(secondConfigFile);
         conf.addResource(secondConfigPath);
         
-        // Test that empty string property is different from null (missing)
-        // Empty property should return empty string, not null
+        // In Hadoop Configuration, empty values from XML are NOT loaded by default
+        // (allowNullValueProperties is false). So this property won't exist.
         String emptyValue = conf.get("empty.property");
-        assertEquals("", emptyValue,
-            "Property with empty value should return empty string, not null");
+        assertNull(emptyValue,
+            "Property with empty XML value is not loaded by default (allowNullValueProperties=false)");
         
-        // But default should not be used for empty property
-        assertEquals("", conf.get("empty.property", "default"),
-            "Property with empty value should return empty, not default");
+        // Default value should be returned for property that wasn't loaded
+        assertEquals("default", conf.get("empty.property", "default"),
+            "Default should be returned for empty property that wasn't loaded");
+        
+        // Whitespace-only value IS loaded (it's not empty - it has content)
+        assertEquals("   ", conf.get("whitespace.property"),
+            "Property with whitespace-only value should be loaded");
         
         // Cleanup
         secondConfigFile.delete();
