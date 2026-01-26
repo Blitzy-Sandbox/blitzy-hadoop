@@ -381,10 +381,14 @@ public class TestPermissionAclWorkflow extends AbstractHdfsWorkflowTest {
                         && e.getPermission() == READ_WRITE);
         assertTrue(hasGroupEntry, "Should have group:" + TEST_GROUP + ":rw- entry");
 
-        // Verify mask entry exists
-        boolean hasMaskEntry = entries.stream()
-                .anyMatch(e -> e.getType() == MASK);
-        assertTrue(hasMaskEntry, "Should have mask entry");
+        // Note: For ACCESS scope on files, HDFS does not return the mask entry in getEntries()
+        // The mask is computed and stored internally but not explicitly returned
+        // The mask IS returned for DEFAULT scope entries on directories
+        // Verify at least two named entries exist (user and group)
+        long namedEntriesCount = entries.stream()
+                .filter(e -> e.getName() != null)
+                .count();
+        assertTrue(namedEntriesCount >= 2, "Should have at least 2 named ACL entries");
 
         // ARRANGE: Create a test directory for default ACLs
         Path testSubDir = new Path(testDir, "setAclTestDir");
@@ -610,32 +614,48 @@ public class TestPermissionAclWorkflow extends AbstractHdfsWorkflowTest {
         assertTrue(canWriteAfterUpdate,
                 "User should have write access after ACL update");
 
-        // ACT: Test directory access for execute permission
+        // ACT: Test directory access for execute permission via ACLs
         Path testSubDir = new Path(testDir, "accessCheckDir");
         fs.mkdirs(testSubDir);
 
-        // Set directory permissions: owner rwx, group r-x, other ---
-        fs.setPermission(testSubDir, new FsPermission((short) 0750));
+        // Set directory permissions: owner rwx, group ---, other ---
+        // This ensures no one except owner has access without ACL
+        fs.setPermission(testSubDir, new FsPermission((short) 0700));
 
-        // ASSERT: User in TEST_GROUP should have execute access via group permission
-        boolean canExecuteViaGroup = tryAccess(testSubDir, testUser, FsAction.EXECUTE);
-        assertTrue(canExecuteViaGroup,
-                "User in group should have execute access via group permission");
+        // ASSERT: User without ACL should not have execute access
+        boolean canExecuteWithoutAcl = tryAccess(testSubDir, aclTestUser, FsAction.EXECUTE);
+        assertFalse(canExecuteWithoutAcl,
+                "User should not have execute access without ACL grant");
 
-        // ASSERT: User not in group should not have execute access
-        boolean canExecuteOther = tryAccess(testSubDir, aclTestUser, FsAction.EXECUTE);
-        assertFalse(canExecuteOther,
-                "User not in group should not have execute access (other has no perms)");
+        // ASSERT: User without ACL should not have read access either
+        boolean canReadWithoutAcl = tryAccess(testSubDir, aclTestUser, FsAction.READ);
+        assertFalse(canReadWithoutAcl,
+                "User should not have read access without ACL grant");
 
         // ACT: Add ACL granting execute to aclTestUser
         fs.modifyAclEntries(testSubDir, Lists.newArrayList(
                 aclEntry(ACCESS, USER, ACL_USER, EXECUTE)
         ));
 
-        // ASSERT: Now aclTestUser should have execute access
+        // ASSERT: Now aclTestUser should have execute access via ACL
         boolean canExecuteWithAcl = tryAccess(testSubDir, aclTestUser, FsAction.EXECUTE);
         assertTrue(canExecuteWithAcl,
                 "User should have execute access after ACL grant on directory");
+
+        // ASSERT: But read access should still be denied (ACL only grants execute)
+        boolean canReadAfterExecuteAcl = tryAccess(testSubDir, aclTestUser, FsAction.READ);
+        assertFalse(canReadAfterExecuteAcl,
+                "User should not have read access (ACL only grants execute)");
+
+        // ACT: Add ACL granting read+execute to aclTestUser
+        fs.modifyAclEntries(testSubDir, Lists.newArrayList(
+                aclEntry(ACCESS, USER, ACL_USER, READ_EXECUTE)
+        ));
+
+        // ASSERT: Now aclTestUser should have both read and execute access
+        boolean canReadExecuteWithAcl = tryAccess(testSubDir, aclTestUser, FsAction.READ_EXECUTE);
+        assertTrue(canReadExecuteWithAcl,
+                "User should have read+execute access after ACL update on directory");
     }
 
     /**
