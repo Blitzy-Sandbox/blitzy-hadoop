@@ -2,11 +2,13 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: blitzy-hadoop
-  description: "Comprehensive workflow test suite for Apache Hadoop — HDFS, YARN, MapReduce, and Common modules"
+  description: Comprehensive workflow test suite for Apache Hadoop — HDFS, YARN, MapReduce,
+    and Common modules
   tags:
-    - java
-    - infrastructure
-    - refactor
+  - infrastructure
+  - java
+  - refactor
+  - test-suite
   labels:
     blitzy.com/language: java
   annotations:
@@ -14,11 +16,11 @@ metadata:
     github.com/project-slug: Blitzy-Sandbox/blitzy-hadoop
     backstage.io/source-location: url:https://github.com/Blitzy-Sandbox/blitzy-hadoop/tree/trunk/
   links:
-    - url: https://github.com/Blitzy-Sandbox/blitzy-hadoop
-      title: GitHub Repository
-    - url: https://github.com/Blitzy-Sandbox/blitzy-hadoop/pull/1
-      title: "PR #1: Comprehensive Workflow Test Suite"
-      icon: github
+  - url: https://github.com/Blitzy-Sandbox/blitzy-hadoop
+    title: GitHub Repository
+  - url: https://github.com/Blitzy-Sandbox/blitzy-hadoop/pull/1
+    title: 'PR #1: Comprehensive Workflow Test Suite'
+    icon: github
 spec:
   type: library
   lifecycle: production
